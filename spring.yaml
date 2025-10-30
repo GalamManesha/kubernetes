@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spring-boot-mongo
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: spring-boot-mongo
+  template:
+    metadata:
+      labels:
+        app: spring-boot-mongo
+    spec:
+      containers:
+      - name: spring-boot-mongo
+        image: manesha689/activate:1.0.1
+        ports:
+        - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spring-boot-mongo-service
+spec:
+  selector:
+    app: spring-boot-mongo
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+      nodePort: 30080
+  type: NodePort
