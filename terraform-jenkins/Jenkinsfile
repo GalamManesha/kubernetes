@@ -1,8 +1,7 @@
-// Jenkinsfile - Declarative pipeline for Terraform (uses secret-text credentials)
+// Jenkinsfile - Declarative pipeline for Terraform (fixed; no unclosed strings)
 pipeline {
   agent any
 
-  // Let user override repo/branch if they run it manually via parameters
   parameters {
     string(name: 'GIT_URL', defaultValue: 'https://github.com/GalamManesha/kubernetes.git', description: 'Git repository URL')
     string(name: 'GIT_BRANCH', defaultValue: 'main', description: 'Git branch to checkout')
@@ -11,12 +10,10 @@ pipeline {
 
   environment {
     AWS_DEFAULT_REGION = 'us-east-1'
-    // Terraform binary fallback; prefer system PATH but fall back to this
     TERRAFORM_BIN = "/usr/local/bin/terraform"
   }
 
   options {
-    // keep build logs for 7 days, timeout job after 60 minutes
     buildDiscarder(logRotator(daysToKeepStr: '7'))
     timeout(time: 60, unit: 'MINUTES')
     ansiColor('xterm')
@@ -33,11 +30,11 @@ pipeline {
     stage('Preflight / Tools Check') {
       steps {
         script {
-          // Choose terraform binary: prefer PATH then fallback
           def tf = sh(script: 'command -v terraform || echo ${TERRAFORM_BIN}', returnStdout: true).trim()
           env.TF_BIN = tf
           echo "Using Terraform: ${env.TF_BIN}"
         }
+        // single-line to show version; use the resolved TF_BIN
         sh '${TF_BIN} --version'
       }
     }
@@ -45,11 +42,10 @@ pipeline {
     stage('Terraform Format & Validate') {
       steps {
         dir('.') {
+          // multiline sh block - properly closed
           sh '''
-            # ensure consistent formatting
+            set -e
             ${TF_BIN} fmt -recursive || true
-
-            # validate terraform configuration
             ${TF_BIN} init -input=false
             ${TF_BIN} validate || true
           '''
@@ -63,30 +59,27 @@ pipeline {
           string(credentialsId: 'aws-access-key-id', variable: 'AWS_ACCESS_KEY_ID'),
           string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY')
         ]) {
+          // create plan and show human-readable plan
           sh '''
             set -e
             export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
             export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-            # create an execution plan and write binary plan file
             ${TF_BIN} init -input=false
             ${TF_BIN} plan -out=tfplan -input=false
-            # write human-readable plan to stdout
             echo "---- terraform show (human readable) ----"
             ${TF_BIN} show -no-color tfplan
           '''
-          // archive the plan file for later use in apply stage
           archiveArtifacts artifacts: 'tfplan', onlyIfSuccessful: true
         }
       }
     }
 
-    stage('Approve / Apply') {
+    stage('Approve / Apply (manual)') {
       when {
         expression { return params.AUTO_APPLY == false }
       }
       steps {
         script {
-          // manual approval if AUTO_APPLY == false
           def user = input(id: 'ProceedApply', message: 'Approve terraform apply?', ok: 'Apply', parameters: [
             [$class: 'TextParameterDefinition', defaultValue: '', description: 'Optional comment', name: 'COMMENT']
           ])
@@ -97,3 +90,44 @@ pipeline {
           string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY')
         ]) {
           sh '''
+            set -e
+            export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+            export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+            ${TF_BIN} apply -auto-approve tfplan
+          '''
+        }
+      }
+    }
+
+    stage('Auto-Apply (when enabled)') {
+      when {
+        expression { return params.AUTO_APPLY == true }
+      }
+      steps {
+        withCredentials([
+          string(credentialsId: 'aws-access-key-id', variable: 'AWS_ACCESS_KEY_ID'),
+          string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY')
+        ]) {
+          sh '''
+            set -e
+            export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+            export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+            ${TF_BIN} apply -auto-approve tfplan
+          '''
+        }
+      }
+    }
+  }
+
+  post {
+    success {
+      echo "✅ Pipeline finished successfully."
+    }
+    failure {
+      echo "❌ Pipeline failed — check console output and Terraform logs."
+    }
+    always {
+      echo "Finished at: ${new Date()}"
+    }
+  }
+}
