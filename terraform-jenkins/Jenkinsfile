@@ -2,27 +2,27 @@ pipeline {
   agent any
   environment { AWS_DEFAULT_REGION = 'us-east-1' }
   stages {
-    stage('Checkout') { steps { git url: 'https://github.com/GalamManesha/kubernetes.git', branch: 'main' } }
+    stage('Checkout') {
+      steps { git branch: 'main', url: 'https://github.com/GalamManesha/kubernetes.git' }
+    }
     stage('Terraform') {
       steps {
-        // If using AmazonWebServicesCredentialsBinding (AWS Credentials plugin)
-        withCredentials([[
-          $class: 'AmazonWebServicesCredentialsBinding',
-          credentialsId: 'aws-creds'   // replace with your Jenkins credential id
-        ]]) {
+        withCredentials([
+          string(credentialsId: 'AWS_ACCESS_KEY_ID', variable: 'AWS_ACCESS_KEY_ID'),
+          string(credentialsId: 'AWS_SECRET_ACCESS_KEY', variable: 'AWS_SECRET_ACCESS_KEY')
+        ]) {
           sh '''
+            echo "Using terraform..."
+            /usr/local/bin/terraform --version || terraform --version
+            export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+            export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
             terraform init -input=false
             terraform plan -out=tfplan -input=false
             terraform apply -auto-approve tfplan
           '''
         }
-
-        // OR using Secret text credentials (two secrets)
-        // withCredentials([string(credentialsId:'AWS_ACCESS_KEY_ID', variable:'AWS_ACCESS_KEY_ID'),
-        //                  string(credentialsId:'AWS_SECRET_ACCESS_KEY', variable:'AWS_SECRET_ACCESS_KEY')]) {
-        //   sh 'terraform init -input=false'
-        // }
       }
     }
   }
+  post { success { echo "✅ Success" } failure { echo "❌ Failure" } }
 }
