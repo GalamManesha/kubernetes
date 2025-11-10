@@ -1,39 +1,28 @@
 pipeline {
   agent any
-
-  environment {
-    AWS_DEFAULT_REGION = 'us-east-1'
-  }
-
+  environment { AWS_DEFAULT_REGION = 'us-east-1' }
   stages {
-    stage('Checkout Code') {
+    stage('Checkout') { steps { git url: 'https://github.com/GalamManesha/kubernetes.git', branch: 'main' } }
+    stage('Terraform') {
       steps {
-        git branch: 'main', url: 'https://github.com/GalamManesha/kubernetes.git'
+        // If using AmazonWebServicesCredentialsBinding (AWS Credentials plugin)
+        withCredentials([[
+          $class: 'AmazonWebServicesCredentialsBinding',
+          credentialsId: 'aws-creds'   // replace with your Jenkins credential id
+        ]]) {
+          sh '''
+            terraform init -input=false
+            terraform plan -out=tfplan -input=false
+            terraform apply -auto-approve tfplan
+          '''
+        }
+
+        // OR using Secret text credentials (two secrets)
+        // withCredentials([string(credentialsId:'AWS_ACCESS_KEY_ID', variable:'AWS_ACCESS_KEY_ID'),
+        //                  string(credentialsId:'AWS_SECRET_ACCESS_KEY', variable:'AWS_SECRET_ACCESS_KEY')]) {
+        //   sh 'terraform init -input=false'
+        // }
       }
     }
-
-    stage('Terraform Init') {
-      steps {
-        sh 'terraform --version'
-        sh 'terraform init -input=false'
-      }
-    }
-
-    stage('Terraform Plan') {
-      steps {
-        sh 'terraform plan -out=tfplan -input=false'
-      }
-    }
-
-    stage('Terraform Apply') {
-      steps {
-        sh 'terraform apply -auto-approve tfplan'
-      }
-    }
-  }
-
-  post {
-    success { echo "✅ Terraform Apply Success!" }
-    failure { echo "❌ Pipeline Failed!" }
   }
 }
