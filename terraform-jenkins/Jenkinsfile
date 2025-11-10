@@ -1,30 +1,57 @@
+// Jenkinsfile - Declarative pipeline for Terraform (uses secret-text credentials)
 pipeline {
   agent any
 
+  // Let user override repo/branch if they run it manually via parameters
+  parameters {
+    string(name: 'GIT_URL', defaultValue: 'https://github.com/GalamManesha/kubernetes.git', description: 'Git repository URL')
+    string(name: 'GIT_BRANCH', defaultValue: 'main', description: 'Git branch to checkout')
+    booleanParam(name: 'AUTO_APPLY', defaultValue: true, description: 'If true, terraform apply will run automatically. If false, pipeline waits for human approval.')
+  }
+
   environment {
     AWS_DEFAULT_REGION = 'us-east-1'
+    // Terraform binary fallback; prefer system PATH but fall back to this
+    TERRAFORM_BIN = "/usr/local/bin/terraform"
+  }
+
+  options {
+    // keep build logs for 7 days, timeout job after 60 minutes
+    buildDiscarder(logRotator(daysToKeepStr: '7'))
+    timeout(time: 60, unit: 'MINUTES')
+    ansiColor('xterm')
   }
 
   stages {
     stage('Checkout') {
       steps {
-        git branch: 'main', url: 'https://github.com/GalamManesha/kubernetes.git'
+        echo "Checking out ${params.GIT_URL} (${params.GIT_BRANCH})"
+        git branch: params.GIT_BRANCH, url: params.GIT_URL
       }
     }
 
-    stage('Terraform Init') {
+    stage('Preflight / Tools Check') {
       steps {
-        withCredentials([
-          string(credentialsId: 'aws-access-key-id', variable: 'AWS_ACCESS_KEY_ID'),
-          string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY')
-        ]) {
+        script {
+          // Choose terraform binary: prefer PATH then fallback
+          def tf = sh(script: 'command -v terraform || echo ${TERRAFORM_BIN}', returnStdout: true).trim()
+          env.TF_BIN = tf
+          echo "Using Terraform: ${env.TF_BIN}"
+        }
+        sh '${TF_BIN} --version'
+      }
+    }
+
+    stage('Terraform Format & Validate') {
+      steps {
+        dir('.') {
           sh '''
-            echo "Terraform version check"
-            /usr/local/bin/terraform --version || terraform --version
-            # export credentials for Terraform / AWS provider
-            export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-            export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-            terraform init -input=false
+            # ensure consistent formatting
+            ${TF_BIN} fmt -recursive || true
+
+            # validate terraform configuration
+            ${TF_BIN} init -input=false
+            ${TF_BIN} validate || true
           '''
         }
       }
@@ -32,26 +59,41 @@ pipeline {
 
     stage('Terraform Plan') {
       steps {
-        sh 'terraform plan -out=tfplan -input=false'
+        withCredentials([
+          string(credentialsId: 'aws-access-key-id', variable: 'AWS_ACCESS_KEY_ID'),
+          string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY')
+        ]) {
+          sh '''
+            set -e
+            export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+            export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+            # create an execution plan and write binary plan file
+            ${TF_BIN} init -input=false
+            ${TF_BIN} plan -out=tfplan -input=false
+            # write human-readable plan to stdout
+            echo "---- terraform show (human readable) ----"
+            ${TF_BIN} show -no-color tfplan
+          '''
+          // archive the plan file for later use in apply stage
+          archiveArtifacts artifacts: 'tfplan', onlyIfSuccessful: true
+        }
       }
     }
 
-    stage('Terraform Apply') {
+    stage('Approve / Apply') {
+      when {
+        expression { return params.AUTO_APPLY == false }
+      }
       steps {
-        sh 'terraform apply -auto-approve tfplan'
-      }
-    }
-  }
-
-  post {
-    success {
-      echo "✅ Success — Terraform applied"
-    }
-    failure {
-      echo "❌ Failure — check console output"
-    }
-    always {
-      echo "Finished at: ${new Date()}"
-    }
-  }
-}
+        script {
+          // manual approval if AUTO_APPLY == false
+          def user = input(id: 'ProceedApply', message: 'Approve terraform apply?', ok: 'Apply', parameters: [
+            [$class: 'TextParameterDefinition', defaultValue: '', description: 'Optional comment', name: 'COMMENT']
+          ])
+          echo "Approved by: ${user}"
+        }
+        withCredentials([
+          string(credentialsId: 'aws-access-key-id', variable: 'AWS_ACCESS_KEY_ID'),
+          string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY')
+        ]) {
+          sh '''
