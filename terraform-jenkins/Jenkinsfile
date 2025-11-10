@@ -15,13 +15,13 @@ pipeline {
     stage('Terraform Init') {
       steps {
         withCredentials([
-          string(credentialsId: 'AWS_ACCESS_KEY_ID', variable: 'AWS_ACCESS_KEY_ID'),
-          string(credentialsId: 'AWS_SECRET_ACCESS_KEY', variable: 'AWS_SECRET_ACCESS_KEY')
+          string(credentialsId: 'aws-access-key-id', variable: 'AWS_ACCESS_KEY_ID'),
+          string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY')
         ]) {
-          // use explicit path to terraform if necessary: /usr/local/bin/terraform
           sh '''
             echo "Terraform version check"
-            terraform --version || /usr/local/bin/terraform --version
+            /usr/local/bin/terraform --version || terraform --version
+            # export credentials for Terraform / AWS provider
             export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
             export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
             terraform init -input=false
@@ -45,19 +45,13 @@ pipeline {
 
   post {
     success {
-      script {
-        echo "✅ Success — Terraform applied"
-      }
+      echo "✅ Success — Terraform applied"
     }
     failure {
-      script {
-        echo "❌ Failure — check console output"
-      }
+      echo "❌ Failure — check console output"
     }
     always {
-      script {
-        echo "Finished at: ${new Date()}"
-      }
+      echo "Finished at: ${new Date()}"
     }
   }
 }
