@@ -1,0 +1,48 @@
+pipeline {
+  agent {
+    docker {
+      image 'manesha689/activate:1.0.0'
+    }
+  }
+
+  environment {
+    AWS_ACCESS_KEY_ID     = 'AKIASUJ44E6S6E47K4WV'
+    AWS_SECRET_ACCESS_KEY = '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'
+    AWS_DEFAULT_REGION    = 'us-east-1'
+  }
+
+  stages {
+    stage('Checkout Code') {
+      steps {
+        checkout scm
+      }
+    }
+
+    stage('Terraform Init') {
+      steps {
+        sh 'terraform init -input=false'
+      }
+    }
+
+    stage('Terraform Plan') {
+      steps {
+        sh 'terraform plan -out=tfplan -input=false'
+      }
+    }
+
+    stage('Terraform Apply') {
+      steps {
+        sh 'terraform apply -auto-approve tfplan'
+      }
+    }
+  }
+
+  post {
+    success {
+      echo "✅ Terraform Apply Success!"
+    }
+    failure {
+      echo "❌ Pipeline Failed!"
+    }
+  }
+}
