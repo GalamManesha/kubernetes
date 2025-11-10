@@ -1,26 +1,20 @@
 pipeline {
-  agent {
-    docker {
-      image 'manesha689/activate:1.0.0'
-      args '-u root:root'   // optional: run as root user inside container
-    }
-  }
+  agent any
 
   environment {
-    AWS_ACCESS_KEY_ID     = 'AKIASUJ44E6S6E47K4WV'
-    AWS_SECRET_ACCESS_KEY = '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'
-    AWS_DEFAULT_REGION    = 'us-east-1'
+    AWS_DEFAULT_REGION = 'us-east-1'
   }
 
   stages {
     stage('Checkout Code') {
       steps {
-        git branch: 'main', url: 'https://github.com/ganesh-devops/terraform-aws.git'
+        git branch: 'main', url: 'https://github.com/GalamManesha/kubernetes.git'
       }
     }
 
     stage('Terraform Init') {
       steps {
+        sh 'terraform --version'
         sh 'terraform init -input=false'
       }
     }
@@ -39,11 +33,7 @@ pipeline {
   }
 
   post {
-    success {
-      echo "✅ Terraform Apply Success!"
-    }
-    failure {
-      echo "❌ Pipeline Failed!"
-    }
+    success { echo "✅ Terraform Apply Success!" }
+    failure { echo "❌ Pipeline Failed!" }
   }
 }
