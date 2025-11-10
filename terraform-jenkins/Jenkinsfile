@@ -1,4 +1,4 @@
-// Jenkinsfile - Declarative pipeline (compatible with your Jenkins)
+// Jenkinsfile - single-line sh style to avoid multiline quoting problems
 pipeline {
   agent any
 
@@ -16,7 +16,7 @@ pipeline {
   options {
     buildDiscarder(logRotator(daysToKeepStr: '7'))
     timeout(time: 60, unit: 'MINUTES')
-    timestamps()        // safe option to add timestamps to console
+    timestamps()
   }
 
   stages {
@@ -27,48 +27,72 @@ pipeline {
       }
     }
 
-    stage('Preflight / Tools Check') {
+    stage('Find Terraform') {
       steps {
         script {
-          def tf = sh(script: 'command -v terraform || echo ${TERRAFORM_BIN}', returnStdout: true).trim()
+          def tf = sh(script: "command -v terraform || echo ${TERRAFORM_BIN}", returnStdout: true).trim()
           env.TF_BIN = tf
           echo "Using Terraform: ${env.TF_BIN}"
         }
-        sh '${TF_BIN} --version'
+        sh "${env.TF_BIN} --version"
       }
     }
 
-    stage('Terraform Format & Validate') {
+    stage('Format & Validate') {
       steps {
-        dir('.') {
-          sh '''
-            set -e
-            ${TF_BIN} fmt -recursive || true
-            ${TF_BIN} init -input=false
-            ${TF_BIN} validate || true
-          '''
-        }
+        sh "set -e && ${env.TF_BIN} fmt -recursive || true"
+        sh "set -e && ${env.TF_BIN} init -input=false"
+        sh "set -e || true && ${env.TF_BIN} validate || true"
       }
     }
 
-    stage('Terraform Plan') {
+    stage('Plan') {
       steps {
         withCredentials([
           string(credentialsId: 'aws-access-key-id', variable: 'AWS_ACCESS_KEY_ID'),
           string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY')
         ]) {
-          sh '''
-            set -e
-            export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-            export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-            ${TF_BIN} init -input=false
-            ${TF_BIN} plan -out=tfplan -input=false
-            echo "---- terraform show (human readable) ----"
-            ${TF_BIN} show -no-color tfplan
-          '''
+          // single-line sh: init, plan, show
+          sh "set -e && export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID} AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY} && ${env.TF_BIN} init -input=false && ${env.TF_BIN} plan -out=tfplan -input=false && echo '---- terraform show (human readable) ----' && ${env.TF_BIN} show -no-color tfplan"
           archiveArtifacts artifacts: 'tfplan', onlyIfSuccessful: true
         }
       }
     }
 
-    stage('Approve / Apply (manua
+    stage('Apply - Manual Approval') {
+      when { expression { return params.AUTO_APPLY == false } }
+      steps {
+        script {
+          def user = input(id: 'ProceedApply', message: 'Approve terraform apply?', ok: 'Apply', parameters: [
+            [$class: 'TextParameterDefinition', defaultValue: '', description: 'Optional comment', name: 'COMMENT']
+          ])
+          echo "Approved by: ${user}"
+        }
+        withCredentials([
+          string(credentialsId: 'aws-access-key-id', variable: 'AWS_ACCESS_KEY_ID'),
+          string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY')
+        ]) {
+          sh "set -e && export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID} AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY} && ${env.TF_BIN} apply -auto-approve tfplan"
+        }
+      }
+    }
+
+    stage('Apply - Auto') {
+      when { expression { return params.AUTO_APPLY == true } }
+      steps {
+        withCredentials([
+          string(credentialsId: 'aws-access-key-id', variable: 'AWS_ACCESS_KEY_ID'),
+          string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY')
+        ]) {
+          sh "set -e && export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID} AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY} && ${env.TF_BIN} apply -auto-approve tfplan"
+        }
+      }
+    }
+  }
+
+  post {
+    success { echo "✅ Pipeline finished successfully." }
+    failure { echo "❌ Pipeline failed — check console output and Terraform logs." }
+    always  { echo "Finished at: ${new Date()}" }
+  }
+}
