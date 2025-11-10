@@ -2,6 +2,7 @@ pipeline {
   agent {
     docker {
       image 'manesha689/activate:1.0.0'
+      args '-u root:root'   // optional: run as root user inside container
     }
   }
 
@@ -14,7 +15,7 @@ pipeline {
   stages {
     stage('Checkout Code') {
       steps {
-        checkout scm
+        git branch: 'main', url: 'https://github.com/ganesh-devops/terraform-aws.git'
       }
     }
 
