@@ -1,4 +1,4 @@
-// Jenkinsfile - Declarative pipeline for Terraform (fixed; no unclosed strings)
+// Jenkinsfile - Declarative pipeline (compatible with your Jenkins)
 pipeline {
   agent any
 
@@ -16,7 +16,7 @@ pipeline {
   options {
     buildDiscarder(logRotator(daysToKeepStr: '7'))
     timeout(time: 60, unit: 'MINUTES')
-    ansiColor('xterm')
+    timestamps()        // safe option to add timestamps to console
   }
 
   stages {
@@ -34,7 +34,6 @@ pipeline {
           env.TF_BIN = tf
           echo "Using Terraform: ${env.TF_BIN}"
         }
-        // single-line to show version; use the resolved TF_BIN
         sh '${TF_BIN} --version'
       }
     }
@@ -42,7 +41,6 @@ pipeline {
     stage('Terraform Format & Validate') {
       steps {
         dir('.') {
-          // multiline sh block - properly closed
           sh '''
             set -e
             ${TF_BIN} fmt -recursive || true
@@ -59,7 +57,6 @@ pipeline {
           string(credentialsId: 'aws-access-key-id', variable: 'AWS_ACCESS_KEY_ID'),
           string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY')
         ]) {
-          // create plan and show human-readable plan
           sh '''
             set -e
             export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
@@ -74,60 +71,4 @@ pipeline {
       }
     }
 
-    stage('Approve / Apply (manual)') {
-      when {
-        expression { return params.AUTO_APPLY == false }
-      }
-      steps {
-        script {
-          def user = input(id: 'ProceedApply', message: 'Approve terraform apply?', ok: 'Apply', parameters: [
-            [$class: 'TextParameterDefinition', defaultValue: '', description: 'Optional comment', name: 'COMMENT']
-          ])
-          echo "Approved by: ${user}"
-        }
-        withCredentials([
-          string(credentialsId: 'aws-access-key-id', variable: 'AWS_ACCESS_KEY_ID'),
-          string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY')
-        ]) {
-          sh '''
-            set -e
-            export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-            export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-            ${TF_BIN} apply -auto-approve tfplan
-          '''
-        }
-      }
-    }
-
-    stage('Auto-Apply (when enabled)') {
-      when {
-        expression { return params.AUTO_APPLY == true }
-      }
-      steps {
-        withCredentials([
-          string(credentialsId: 'aws-access-key-id', variable: 'AWS_ACCESS_KEY_ID'),
-          string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY')
-        ]) {
-          sh '''
-            set -e
-            export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-            export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-            ${TF_BIN} apply -auto-approve tfplan
-          '''
-        }
-      }
-    }
-  }
-
-  post {
-    success {
-      echo "✅ Pipeline finished successfully."
-    }
-    failure {
-      echo "❌ Pipeline failed — check console output and Terraform logs."
-    }
-    always {
-      echo "Finished at: ${new Date()}"
-    }
-  }
-}
+    stage('Approve / Apply (manua
