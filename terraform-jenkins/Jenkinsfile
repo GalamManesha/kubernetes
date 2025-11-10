@@ -1,14 +1,10 @@
-// Jenkinsfile — final corrected pipeline (region: us-east-1)
-// - Credentials (Global): aws-access-key-id, aws-secret-access-key
-// - Set TERRAFORM_DIR below if your .tf files live in a subfolder (default 'terraform-jenkins')
-
 pipeline {
   agent any
 
   environment {
     AWS_DEFAULT_REGION = 'us-east-1'
     TERRAFORM_BIN = '/usr/local/bin/terraform'
-    TERRAFORM_DIR = 'terraform-jenkins'   // <-- change to '' if .tf files are in repo root
+    TERRAFORM_DIR = 'terraform-jenkins'   // change if .tf in repo root
   }
 
   options {
@@ -20,7 +16,6 @@ pipeline {
   stages {
     stage('Checkout') {
       steps {
-        echo "Checking out repo..."
         git branch: 'main', url: 'https://github.com/GalamManesha/kubernetes.git'
       }
     }
@@ -28,48 +23,33 @@ pipeline {
     stage('Locate Terraform') {
       steps {
         script {
-          // prefer terraform in PATH, otherwise fallback to TERRAFORM_BIN
           def tf = sh(script: "command -v terraform || echo ${TERRAFORM_BIN}", returnStdout: true).trim()
           env.TF_BIN = tf
-          echo "Terraform binary: ${env.TF_BIN}"
         }
         sh "${env.TF_BIN} --version"
       }
     }
 
-    stage('Fmt') {
-      steps {
-        script {
-          if (env.TERRAFORM_DIR?.trim()) {
-            sh "${env.TF_BIN} fmt -recursive ${env.TERRAFORM_DIR} || true"
-          } else {
-            sh "${env.TF_BIN} fmt -recursive || true"
-          }
-        }
-      }
-    }
-
+    // ---- INIT inside credentials so S3 backend can authenticate ----
     stage('Init') {
       steps {
-        script {
-          if (env.TERRAFORM_DIR?.trim()) {
-            sh "cd ${env.TERRAFORM_DIR} && ${env.TF_BIN} init -input=false"
-          } else {
-            sh "${env.TF_BIN} init -input=false"
-          }
+        withCredentials([
+          string(credentialsId: 'aws-access-key-id', variable: 'AWS_ACCESS_KEY_ID'),
+          string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY')
+        ]) {
+          sh """
+            cd ${env.TERRAFORM_DIR}
+            export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+            export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+            ${env.TF_BIN} init -input=false
+          """.trim()
         }
       }
     }
 
     stage('Validate') {
       steps {
-        script {
-          if (env.TERRAFORM_DIR?.trim()) {
-            sh "cd ${env.TERRAFORM_DIR} && ${env.TF_BIN} validate || true"
-          } else {
-            sh "${env.TF_BIN} validate || true"
-          }
-        }
+        sh "cd ${env.TERRAFORM_DIR} && ${env.TF_BIN} validate || true"
       }
     }
 
@@ -79,17 +59,14 @@ pipeline {
           string(credentialsId: 'aws-access-key-id', variable: 'AWS_ACCESS_KEY_ID'),
           string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY')
         ]) {
-          script {
-            if (env.TERRAFORM_DIR?.trim()) {
-              sh "cd ${env.TERRAFORM_DIR} && export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID} AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY} && ${env.TF_BIN} plan -out=tfplan -input=false"
-              sh "cd ${env.TERRAFORM_DIR} && ${env.TF_BIN} show -no-color tfplan"
-              archiveArtifacts artifacts: "${env.TERRAFORM_DIR}/tfplan", onlyIfSuccessful: true
-            } else {
-              sh "export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID} AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY} && ${env.TF_BIN} plan -out=tfplan -input=false"
-              sh "${env.TF_BIN} show -no-color tfplan"
-              archiveArtifacts artifacts: "tfplan", onlyIfSuccessful: true
-            }
-          }
+          sh """
+            cd ${env.TERRAFORM_DIR}
+            export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+            export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+            ${env.TF_BIN} plan -out=tfplan -input=false
+          """.trim()
+          sh "cd ${env.TERRAFORM_DIR} && ${env.TF_BIN} show -no-color tfplan"
+          archiveArtifacts artifacts: "${env.TERRAFORM_DIR}/tfplan", onlyIfSuccessful: true
         }
       }
     }
@@ -100,13 +77,12 @@ pipeline {
           string(credentialsId: 'aws-access-key-id', variable: 'AWS_ACCESS_KEY_ID'),
           string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY')
         ]) {
-          script {
-            if (env.TERRAFORM_DIR?.trim()) {
-              sh "cd ${env.TERRAFORM_DIR} && export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID} AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY} && ${env.TF_BIN} apply -auto-approve tfplan"
-            } else {
-              sh "export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID} AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY} && ${env.TF_BIN} apply -auto-approve tfplan"
-            }
-          }
+          sh """
+            cd ${env.TERRAFORM_DIR}
+            export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+            export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+            ${env.TF_BIN} apply -auto-approve tfplan
+          """.trim()
         }
       }
     }
@@ -114,7 +90,7 @@ pipeline {
 
   post {
     success { echo "✅ Terraform completed successfully." }
-    failure { echo "❌ Terraform pipeline failed — see console for details." }
+    failure { echo "❌ Terraform failed — check console for details." }
     always  { echo "Finished at: ${new Date()}" }
   }
 }
