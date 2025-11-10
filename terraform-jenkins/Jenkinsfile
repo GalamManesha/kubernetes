@@ -1,28 +1,63 @@
 pipeline {
   agent any
-  environment { AWS_DEFAULT_REGION = 'us-east-1' }
+
+  environment {
+    AWS_DEFAULT_REGION = 'us-east-1'
+  }
+
   stages {
     stage('Checkout') {
-      steps { git branch: 'main', url: 'https://github.com/GalamManesha/kubernetes.git' }
+      steps {
+        git branch: 'main', url: 'https://github.com/GalamManesha/kubernetes.git'
+      }
     }
-    stage('Terraform') {
+
+    stage('Terraform Init') {
       steps {
         withCredentials([
           string(credentialsId: 'AWS_ACCESS_KEY_ID', variable: 'AWS_ACCESS_KEY_ID'),
           string(credentialsId: 'AWS_SECRET_ACCESS_KEY', variable: 'AWS_SECRET_ACCESS_KEY')
         ]) {
+          // use explicit path to terraform if necessary: /usr/local/bin/terraform
           sh '''
-            echo "Using terraform..."
-            /usr/local/bin/terraform --version || terraform --version
+            echo "Terraform version check"
+            terraform --version || /usr/local/bin/terraform --version
             export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
             export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
             terraform init -input=false
-            terraform plan -out=tfplan -input=false
-            terraform apply -auto-approve tfplan
           '''
         }
       }
     }
+
+    stage('Terraform Plan') {
+      steps {
+        sh 'terraform plan -out=tfplan -input=false'
+      }
+    }
+
+    stage('Terraform Apply') {
+      steps {
+        sh 'terraform apply -auto-approve tfplan'
+      }
+    }
   }
-  post { success { echo "✅ Success" } failure { echo "❌ Failure" } }
+
+  post {
+    success {
+      script {
+        echo "✅ Success — Terraform applied"
+      }
+    }
+    failure {
+      script {
+        echo "❌ Failure — check console output"
+      }
+    }
+    always {
+      script {
+        echo "Finished at: ${new Date()}"
+      }
+    }
+  }
 }
