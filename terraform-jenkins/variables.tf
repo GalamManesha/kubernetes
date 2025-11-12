@@ -1,19 +1,23 @@
 variable "aws_region" {
-  default = "us-east-1"
-}
-
-variable "ami_id" {
-  default = "ami-0a64f837ea2469df6"
-}
-
-variable "instance_type" {
-  default = "t3.small"
+  description = "AWS region"
+  type        = string
+  default     = "us-east-1"
 }
 
 variable "instance_count" {
-  default = 3
+  description = "Number of EC2 instances"
+  type        = number
+  default     = 1
 }
 
-variable "project_name" {
-  default = "manesha"
+variable "instance_type" {
+  description = "EC2 instance type"
+  type        = string
+  default     = "t3.small"
+}
+
+variable "ami_id" {
+  description = "AMI ID to use"
+  type        = string
+  default     = "ami-0a64f837ea2469df6" 
 }
