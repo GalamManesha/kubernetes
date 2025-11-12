@@ -1,7 +1,7 @@
-output "ec2_public_ips" {
-  value = aws_instance.my_ec2[*].public_ip
+output "instance_ids" {
+  value = aws_instance.example[*].id
 }
 
-output "s3_bucket_name" {
-  value = aws_s3_bucket.my_bucket.bucket
+output "public_ips" {
+  value = aws_instance.example[*].public_ip
 }
