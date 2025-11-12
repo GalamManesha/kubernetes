@@ -12,18 +12,21 @@ pipeline {
       }
     }
 
-    stage('Terraform Init & Plan') {
+    stage('Init & Plan (in terraform-jenkins)') {
       steps {
-        // credentialsId = మీ Jenkins లో క్రియేట్ చేసిన ID (example: aws-jenkins-creds)
         withCredentials([usernamePassword(credentialsId: 'aws-jenkins-creds', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-          sh '''
-            echo "Region: $TF_VAR_aws_region"
-            terraform --version
-            terraform init -input=false
-            terraform plan -out=tfplan -input=false
-          '''
+          dir('terraform-jenkins') {
+            sh '''
+              echo "Working dir: $(pwd)"
+              echo "Region: $TF_VAR_aws_region"
+              terraform --version
+              terraform init -input=false
+              terraform plan -out=tfplan -input=false
+            '''
+          }
         }
-        archiveArtifacts artifacts: 'tfplan', onlyIfSuccessful: true
+        // tfplan file is inside terraform-jenkins, so archive with that path
+        archiveArtifacts artifacts: 'terraform-jenkins/tfplan', onlyIfSuccessful: true
       }
     }
 
@@ -31,18 +34,22 @@ pipeline {
       steps {
         input message: "Apply terraform plan to create EC2 instances?", ok: "Apply"
         withCredentials([usernamePassword(credentialsId: 'aws-jenkins-creds', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-          sh 'terraform apply -input=false tfplan'
+          dir('terraform-jenkins') {
+            sh 'terraform apply -input=false tfplan'
+          }
         }
       }
     }
 
     stage('Outputs') {
       steps {
-        sh '''
-          terraform output -json > outputs.json
-          cat outputs.json
-        '''
-        archiveArtifacts artifacts: 'outputs.json', onlyIfSuccessful: true
+        dir('terraform-jenkins') {
+          sh '''
+            terraform output -json > outputs.json
+            cat outputs.json
+          '''
+          archiveArtifacts artifacts: 'terraform-jenkins/outputs.json', onlyIfSuccessful: true
+        }
       }
     }
   }
@@ -52,5 +59,3 @@ pipeline {
     failure { echo 'Terraform pipeline failed' }
   }
 }
-
-
