@@ -2,15 +2,7 @@ pipeline {
   agent any
 
   environment {
-    // Jenkins లో ఉన్న credentials ID
-    AWS_ACCESS_KEY_ID     = AKIASUJ44E6SWFSFL7PV 
-    AWS_SECRET_ACCESS_KEY = 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
     TF_VAR_aws_region = 'us-east-1'
-  }
-
-  options {
-    buildDiscarder(logRotator(numToKeepStr: '10'))
-    // timeout(time: 30, unit: 'MINUTES')
   }
 
   stages {
@@ -20,51 +12,44 @@ pipeline {
       }
     }
 
-    stage('Terraform Init') {
+    stage('Terraform Init & Plan') {
       steps {
-        sh '''
-          terraform --version
-          terraform init -input=false
-        '''
-      }
-    }
-
-    stage('Terraform Plan') {
-      steps {
-        sh '''
-          terraform plan -out=tfplan -input=false
-        '''
-        // archive the plan file if needed
+        // credentialsId = మీ Jenkins లో క్రియేట్ చేసిన ID (example: aws-jenkins-creds)
+        withCredentials([usernamePassword(credentialsId: 'aws-jenkins-creds', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+          sh '''
+            echo "Region: $TF_VAR_aws_region"
+            terraform --version
+            terraform init -input=false
+            terraform plan -out=tfplan -input=false
+          '''
+        }
         archiveArtifacts artifacts: 'tfplan', onlyIfSuccessful: true
       }
     }
 
-    stage('Terraform Apply') {
+    stage('Manual Approval & Apply') {
       steps {
-        // For safety: require manual approval. If you want auto apply, remove input block.
         input message: "Apply terraform plan to create EC2 instances?", ok: "Apply"
-        sh '''
-          terraform apply -input=false tfplan
-        '''
+        withCredentials([usernamePassword(credentialsId: 'aws-jenkins-creds', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+          sh 'terraform apply -input=false tfplan'
+        }
       }
     }
 
     stage('Outputs') {
       steps {
-        sh 'terraform output -json > outputs.json'
-        // show outputs
-        sh 'cat outputs.json'
+        sh '''
+          terraform output -json > outputs.json
+          cat outputs.json
+        '''
         archiveArtifacts artifacts: 'outputs.json', onlyIfSuccessful: true
       }
     }
   }
 
   post {
-    success {
-      echo 'Terraform apply succeeded'
-    }
-    failure {
-      echo 'Terraform pipeline failed'
-    }
+    success { echo 'Terraform apply succeeded' }
+    failure { echo 'Terraform pipeline failed' }
   }
 }
+
