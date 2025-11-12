@@ -1,1 +1,56 @@
+pipeline {
+  agent any
+
+  environment {
+    TF_VAR_aws_region = 'us-east-1'
+  }
+
+  stages {
+    stage('Checkout') {
+      steps {
+        checkout scm
+      }
+    }
+
+    stage('Terraform Init & Plan') {
+      steps {
+        // credentialsId = మీ Jenkins లో క్రియేట్ చేసిన ID (example: aws-jenkins-creds)
+        withCredentials([usernamePassword(credentialsId: 'aws-jenkins-creds', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+          sh '''
+            echo "Region: $TF_VAR_aws_region"
+            terraform --version
+            terraform init -input=false
+            terraform plan -out=tfplan -input=false
+          '''
+        }
+        archiveArtifacts artifacts: 'tfplan', onlyIfSuccessful: true
+      }
+    }
+
+    stage('Manual Approval & Apply') {
+      steps {
+        input message: "Apply terraform plan to create EC2 instances?", ok: "Apply"
+        withCredentials([usernamePassword(credentialsId: 'aws-jenkins-creds', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+          sh 'terraform apply -input=false tfplan'
+        }
+      }
+    }
+
+    stage('Outputs') {
+      steps {
+        sh '''
+          terraform output -json > outputs.json
+          cat outputs.json
+        '''
+        archiveArtifacts artifacts: 'outputs.json', onlyIfSuccessful: true
+      }
+    }
+  }
+
+  post {
+    success { echo 'Terraform apply succeeded' }
+    failure { echo 'Terraform pipeline failed' }
+  }
+}
+
 
