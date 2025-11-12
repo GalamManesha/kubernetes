@@ -2,95 +2,69 @@ pipeline {
   agent any
 
   environment {
-    AWS_DEFAULT_REGION = 'us-east-1'
-    TERRAFORM_BIN = '/usr/local/bin/terraform'
-    TERRAFORM_DIR = 'terraform-jenkins'   // change if .tf in repo root
+    // Jenkins లో ఉన్న credentials ID
+    AWS_ACCESS_KEY_ID     = AKIASUJ44E6SWFSFL7PV 
+    AWS_SECRET_ACCESS_KEY = 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
+    TF_VAR_aws_region = 'us-east-1'
   }
 
   options {
-    buildDiscarder(logRotator(daysToKeepStr: '14'))
-    timeout(time: 60, unit: 'MINUTES')
-    timestamps()
+    buildDiscarder(logRotator(numToKeepStr: '10'))
+    // timeout(time: 30, unit: 'MINUTES')
   }
 
   stages {
     stage('Checkout') {
       steps {
-        git branch: 'main', url: 'https://github.com/GalamManesha/kubernetes.git'
+        checkout scm
       }
     }
 
-    stage('Locate Terraform') {
+    stage('Terraform Init') {
       steps {
-        script {
-          def tf = sh(script: "command -v terraform || echo ${TERRAFORM_BIN}", returnStdout: true).trim()
-          env.TF_BIN = tf
-        }
-        sh "${env.TF_BIN} --version"
+        sh '''
+          terraform --version
+          terraform init -input=false
+        '''
       }
     }
 
-    // ---- INIT inside credentials so S3 backend can authenticate ----
-    stage('Init') {
+    stage('Terraform Plan') {
       steps {
-        withCredentials([
-          string(credentialsId: 'aws-access-key-id', variable: 'AWS_ACCESS_KEY_ID'),
-          string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY')
-        ]) {
-          sh """
-            cd ${env.TERRAFORM_DIR}
-            export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-            export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-            ${env.TF_BIN} init -input=false
-          """.trim()
-        }
+        sh '''
+          terraform plan -out=tfplan -input=false
+        '''
+        // archive the plan file if needed
+        archiveArtifacts artifacts: 'tfplan', onlyIfSuccessful: true
       }
     }
 
-    stage('Validate') {
+    stage('Terraform Apply') {
       steps {
-        sh "cd ${env.TERRAFORM_DIR} && ${env.TF_BIN} validate || true"
+        // For safety: require manual approval. If you want auto apply, remove input block.
+        input message: "Apply terraform plan to create EC2 instances?", ok: "Apply"
+        sh '''
+          terraform apply -input=false tfplan
+        '''
       }
     }
 
-    stage('Plan') {
+    stage('Outputs') {
       steps {
-        withCredentials([
-          string(credentialsId: 'aws-access-key-id', variable: 'AWS_ACCESS_KEY_ID'),
-          string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY')
-        ]) {
-          sh """
-            cd ${env.TERRAFORM_DIR}
-            export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-            export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-            ${env.TF_BIN} plan -out=tfplan -input=false
-          """.trim()
-          sh "cd ${env.TERRAFORM_DIR} && ${env.TF_BIN} show -no-color tfplan"
-          archiveArtifacts artifacts: "${env.TERRAFORM_DIR}/tfplan", onlyIfSuccessful: true
-        }
-      }
-    }
-
-    stage('Apply (auto)') {
-      steps {
-        withCredentials([
-          string(credentialsId: 'aws-access-key-id', variable: 'AWS_ACCESS_KEY_ID'),
-          string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY')
-        ]) {
-          sh """
-            cd ${env.TERRAFORM_DIR}
-            export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-            export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-            ${env.TF_BIN} apply -auto-approve tfplan
-          """.trim()
-        }
+        sh 'terraform output -json > outputs.json'
+        // show outputs
+        sh 'cat outputs.json'
+        archiveArtifacts artifacts: 'outputs.json', onlyIfSuccessful: true
       }
     }
   }
 
   post {
-    success { echo "✅ Terraform completed successfully." }
-    failure { echo "❌ Terraform failed — check console for details." }
-    always  { echo "Finished at: ${new Date()}" }
+    success {
+      echo 'Terraform apply succeeded'
+    }
+    failure {
+      echo 'Terraform pipeline failed'
+    }
   }
 }
