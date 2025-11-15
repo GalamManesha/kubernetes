@@ -37,8 +37,6 @@ pipeline {
                 sh 'terraform apply -auto-approve'
             }
         }
-    }
-
     post {
         success {
             echo '✅ Terraform completed successfully!'
