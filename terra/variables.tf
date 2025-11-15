@@ -21,3 +21,8 @@ variable "ami_id" {
   type        = string
   default     = "ami-0c398cb65a93047f2" 
 }
+variable "key_name" {
+  description = "key name"
+  type        = string
+  default     = "North" 
+}
