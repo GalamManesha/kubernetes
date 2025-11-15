@@ -37,6 +37,7 @@ pipeline {
                 sh 'terraform apply -auto-approve'
             }
         }
+    }
 
     post {
         success {
@@ -46,5 +47,4 @@ pipeline {
             echo '❌ Terraform failed! Check logs.'
         }
     }
-}
 }
