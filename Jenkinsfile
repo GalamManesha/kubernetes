@@ -1,55 +1,49 @@
 pipeline {
-  agent any
+    agent any
 
-  environment {
-    TF_VAR_aws_region = 'us-east-1'
-  }
-
-  stages {
-    stage('Checkout') {
-      steps {
-        checkout scm
-      }
+    environment {
+        AWS_ACCESS_KEY_ID     = credentials('aws-jenkins-creds')
+        AWS_SECRET_ACCESS_KEY = credentials('aws-jenkins-creds')
+        AWS_DEFAULT_REGION    = "us-east-1"
     }
 
-    stage('Terraform Init & Plan') {
-      steps {
-        // credentialsId = మీ Jenkins లో క్రియేట్ చేసిన ID (example: aws-jenkins-creds)
-        withCredentials([usernamePassword(credentialsId: 'aws-jenkins-creds', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-          sh '''
-            echo "Region: $TF_VAR_aws_region"
-            terraform --version
-            terraform init -input=false
-            terraform plan -out=tfplan -input=false
-          '''
+    stages {
+        stage('Checkout') {
+            steps {
+                git 'https://github.com/GalamManesha/kubernetes.git'
+            }
         }
-        archiveArtifacts artifacts: 'tfplan', onlyIfSuccessful: true
-      }
-    }
 
-    stage('Manual Approval & Apply') {
-      steps {
-        input message: "Apply terraform plan to create EC2 instances?", ok: "Apply"
-        withCredentials([usernamePassword(credentialsId: 'aws-jenkins-creds', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-          sh 'terraform apply -input=false tfplan'
+        stage('Terraform Init') {
+            steps {
+                sh 'terraform init'
+            }
         }
-      }
-    }
+        stage ('Terraform validate'){
+          steps{
+          sh 'terraform validate'
+          }
+        }
 
-    stage('Outputs') {
-      steps {
-        sh '''
-          terraform output -json > outputs.json
-          cat outputs.json
-        '''
-        archiveArtifacts artifacts: 'outputs.json', onlyIfSuccessful: true
-      }
-    }
-  }
+        stage('Terraform Plan') {
+            steps {
+                sh 'terraform plan'
+            }
+        }
 
-  post {
-    success { echo 'Terraform apply succeeded' }
-    failure { echo 'Terraform pipeline failed' }
-  }
+        stage('Terraform Apply') {
+            steps {
+                echo '🚀 Auto applying Terraform changes...'
+                sh 'terraform apply -auto-approve'
+            }
+        }
+
+    post {
+        success {
+            echo '✅ Terraform completed successfully!'
+        }
+        failure {
+            echo '❌ Terraform failed! Check logs.'
+        }
+    }
 }
-
