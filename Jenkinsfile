@@ -1,40 +1,48 @@
 pipeline {
     agent any
 
-    environment {
-        AWS_ACCESS_KEY_ID     = credentials('aws-creds')
-        AWS_SECRET_ACCESS_KEY = credentials('aws-creds')
-        AWS_DEFAULT_REGION    = "us-east-1"
-    }
-
     stages {
         stage('Checkout') {
             steps {
-                git 'https://github.com/GalamManesha/kubernetes.git'
+                // Use checkout scm (recommended when Jenkinsfile is loaded from the repo)
+                checkout scm
+
+                // OR (if you prefer explicit git):
+                // git branch: 'main', url: 'https://github.com/GalamManesha/kubernetes.git'
             }
         }
 
-        stage('Terraform Init') {
+        stage('Terraform Init & Validate') {
             steps {
-                sh 'terraform init'
+                // Bind AWS creds (stored in Jenkins as "Username with password", 
+                // username = AWS Access Key, password = AWS Secret Key)
+                withCredentials([usernamePassword(credentialsId: 'aws-creds',
+                                                 usernameVariable: 'AWS_ACCESS_KEY_ID',
+                                                 passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                    sh 'terraform init -input=false'
+                    sh 'terraform validate'
+                }
             }
-        }
-        stage ('Terraform validate'){
-          steps{
-          sh 'terraform validate'
-          }
         }
 
         stage('Terraform Plan') {
             steps {
-                sh 'terraform plan'
+                withCredentials([usernamePassword(credentialsId: 'aws-creds',
+                                                 usernameVariable: 'AWS_ACCESS_KEY_ID',
+                                                 passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                    sh 'terraform plan -out=tfplan -input=false'
+                }
             }
         }
 
         stage('Terraform Apply') {
             steps {
                 echo '🚀 Auto applying Terraform changes...'
-                sh 'terraform apply -auto-approve'
+                withCredentials([usernamePassword(credentialsId: 'aws-creds',
+                                                 usernameVariable: 'AWS_ACCESS_KEY_ID',
+                                                 passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                    sh 'terraform apply -auto-approve tfplan'
+                }
             }
         }
     }
@@ -48,3 +56,4 @@ pipeline {
         }
     }
 }
+
