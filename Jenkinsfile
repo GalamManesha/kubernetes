@@ -19,12 +19,16 @@ pipeline {
             }
         }
 
-        stage('Terraform Init') {
-            steps {
-                withCredentials([usernamePassword(credentialsId: 'aws-creds', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                    sh 'terraform init'
-                }
-            }
+       stage('Terraform Init') {
+  steps {
+    dir('terra') {
+      withCredentials([usernamePassword(credentialsId: 'aws-creds', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+        sh 'terraform init -input=false'
+      }
+    }
+  }
+}
+
         }
 
         stage('Terraform validate') {
