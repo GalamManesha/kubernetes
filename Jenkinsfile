@@ -11,7 +11,7 @@ pipeline {
 
         stage('Checkout') {
             steps {
-                git 
+                git 'https://github.com/GalamManesha/kubernetes.git'
             }
         }
 
