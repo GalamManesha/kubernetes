@@ -2,56 +2,40 @@ pipeline {
     agent any
 
     environment {
-        AWS_DEFAULT_REGION = "us-east-1"
+        AWS_ACCESS_KEY_ID     = credentials('aws-creds')
+        AWS_SECRET_ACCESS_KEY = credentials('aws-creds')
+        AWS_DEFAULT_REGION     = "us-east-1"
     }
 
     stages {
+
         stage('Checkout') {
             steps {
-                checkout scm
+                git 
             }
         }
 
-        stage('Show workspace') {
+        stage('Terraform Init') {
             steps {
-                sh 'pwd'
-                sh 'ls -la'
-            }
-        }
-
-       stage('Terraform Init') {
-  steps {
-    dir('terra') {
-      withCredentials([usernamePassword(credentialsId: 'aws-creds', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-        sh 'terraform init -input=false'
-      }
-    }
-  }
-}
-
-        }
-
-        stage('Terraform validate') {
-            steps {
-                withCredentials([usernamePassword(credentialsId: 'aws-creds', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                    sh 'terraform validate'
+                dir('terra') {
+                    sh 'terraform init'
                 }
             }
         }
 
         stage('Terraform Plan') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'aws-creds', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                    sh 'terraform plan -out=tfplan -input=false'
+                dir('terra') {
+                    sh 'terraform plan'
                 }
             }
         }
 
         stage('Terraform Apply') {
             steps {
-                echo '🚀 Auto applying Terraform changes...'
-                withCredentials([usernamePassword(credentialsId: 'aws-creds', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                    sh 'terraform apply -auto-approve tfplan'
+                input message: "Do you want to launch EC2 instance?"
+                dir('terra') {
+                    sh 'terraform apply -auto-approve'
                 }
             }
         }
@@ -59,7 +43,7 @@ pipeline {
 
     post {
         success {
-            echo '✅ Terraform completed successfully!'
+            echo '✅ EC2 Instance launched successfully!'
         }
         failure {
             echo '❌ Terraform failed! Check logs.'
